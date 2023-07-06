@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ecodynelec_enr_model"
+version = "0.1.0"
+authors = [
+  { name="AymericBdy", email="aymeric.bourdy@heig-vd.fr" },
+]
+description = "This package allows to create a model of the solar and wind electricity productions in Switzerland. It is intended to by used with EcoDynElec."
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "cdsapi==0.6.1",
+    "joblib==1.2.0",
+    "matplotlib==3.7.1",
+    "numpy==1.23.5",
+    "pandas==2.0.1",
+    "pyproj==3.5.0",
+    "python_dateutil==2.8.2",
+    "scikit_learn==1.2.2",
+    "scipy==1.11.1",
+    "xarray==2023.4.2"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/AymericBdy/SwissRenewableElectricityModel"
+"Bug Tracker" = "https://github.com/AymericBdy/SwissRenewableElectricityModel/issues"
