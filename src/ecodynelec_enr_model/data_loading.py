@@ -133,9 +133,9 @@ def load_all_pronovo_files(dirs: [str], types: [str] = ['Wind', 'Solar'], verbos
 
 def save_power_data(power_data: pd.DataFrame, path: str = '{root_dir}export/enr_prod_2017-2022.csv'):
     """
-    Saves the power production ecd_enr_model to a csv file
+    Saves a power production profile to the given csv file
 
-    :param power_data:  the power production ecd_enr_model
+    :param power_data:  the power production to save
     :param path:  the path to save the ecd_enr_model to (creates the parent directory if it does not exist)
     """
     print(f'Saving to {path}...')
