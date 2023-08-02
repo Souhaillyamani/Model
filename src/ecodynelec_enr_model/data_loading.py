@@ -15,7 +15,6 @@ from os.path import exists
 
 import numpy as np
 import pandas as pd
-import xarray as xr
 from pyproj import Transformer
 from scipy.spatial.distance import cdist
 
@@ -25,7 +24,42 @@ transformer = Transformer.from_crs("EPSG:2056", "EPSG:4326")  # MN95 -> WGS84
 root_dir = './ecd_enr_model/'
 """ The root directory where the ecd_enr_model is stored. './ecd_enr_model/' by default. """
 
-def load_pronovo_file(file: str, types: [str] = ['Wind', 'Solar'], verbose: bool=False) -> pd.DataFrame:
+pronovo_types_map = {
+    '*': {
+        'Wind': 'Wind (kWh)',
+        'Solar': 'Photovoltaik (kWh)',
+        'Biogas': 'Biogas (kWh)',
+        'Biomass_1_crops': 'Energiepflanze (kWh)',
+        'Biomass_2_waste': 'Forst- und Landwirtschaftliche Abfälle (kWh)',
+        'Waste_1': 'Kehrichtverbrennung (erneuerbar) (kWh)',
+        'Sewage_gas': 'Klärgas (kWh)',
+    },
+    '5': {
+        'Wind': 'Wind',
+        'Solar': 'Photovoltaic',
+        'Biomass_all': 'Biomasse'
+    },
+    '2': {
+        'Wind': '-A.Windturbine [kWh]',
+        'Solar': '-A.Photovoltaik [kWh]',
+        'Biogas': '-A.Biogas [kWh]',
+        'Biomass_1_crops': '-A.Energiepflanze [kWh]',
+        'Biomass_2_waste': '-A.Forst- und Landwirtschaftliche Abfälle [kWh]',
+        'Waste_1': '-A.Kehrichtverbrennung [kWh]',
+        'Waste_2.50': '-A.Kehrichtverbrennung (erneuerbar).50 [kWh]',
+        'Waste_3.100': '-A.Kehrichtverbrennung (erneuerbar).100 [kWh]',
+        'Waste_4_no_enr': '-A.Kehrichtverbrennung (nicht erneuerbar) [kWh]',
+        'Sewage_gas': '-A.Klärgas [kWh]',
+        # 'Gas_1': '-A.Erdgas Dampfturbine [kWh]',
+        # 'Gas_2': '-A.Gas- und Dampfkombikraftwerk [kWh]',
+        # 'Gas_3': '-A.Gasturbine [kWh]',
+        # 'Unknown': '-A.Leichtwasserreaktor [kWh]', #light water  -> matches nuclear production
+        # 'Combustion_engine': '-A.Verbrennungsmotor [kWh]'
+    }
+}
+
+
+def load_pronovo_file(file: str, types: [str] = ['Wind', 'Solar'], verbose: bool = False) -> pd.DataFrame:
     """
     Load pronovo ecd_enr_model from a csv file.
     Supports years from 2020 to 2022 (historically the format of the files changes every semester).
@@ -44,48 +78,48 @@ def load_pronovo_file(file: str, types: [str] = ['Wind', 'Solar'], verbose: bool
         format = 1
     else:
         format = 2
-    pronovo_types = ['Wind (kWh)' if tpe == 'Wind' else 'Photovoltaik (kWh)' for tpe in types]
+    if verbose: print(f'Load fmt {format} {file}', end='\n')
     if format == 5:
         pronovo_data = pd.read_csv(f'{root_dir}{file}', index_col=0, skiprows=2,
                                    encoding='windows-1252', sep=';')
-        if verbose:
-            print('Load fmt 5', file, end='\r')
-        pronovo_types = ['Wind' if tpe == 'Wind' else 'Photovoltaic' for tpe in types]
+        pronovo_types = pronovo_types_map['5']
     elif format == 6:
         pronovo_data = pd.read_csv(f'{root_dir}{file}', index_col=0, skiprows=10,
                                    encoding='windows-1252', sep=';')
-        if verbose: print('Load fmt 6', file, end='\r')
+        pronovo_types = pronovo_types_map['*']
     elif format == 3:
         pronovo_data = pd.read_csv(f'{root_dir}{file}', index_col=0, skiprows=16,
                                    encoding='windows-1252', sep=';')
-        if verbose: print('Load fmt 3', file, end='\r')
+        pronovo_types = pronovo_types_map['*']
     elif format == 4:
         pronovo_data = pd.read_csv(f'{root_dir}{file}', index_col=0, skiprows=18,
                                    encoding='windows-1252', sep=';')
-        if verbose: print('Load fmt 4', file, end='\r')
+        pronovo_types = pronovo_types_map['*']
     elif format == 1:
         pronovo_data = pd.read_csv(f'{root_dir}{file}', index_col=0, skiprows=17,
                                    encoding='windows-1252', sep=';')
-        if verbose: print('Load fmt 1', file, end='\r')
-    elif format == 2:
+        pronovo_types = pronovo_types_map['*']
+    elif format == 2 or format == 7:
         pronovo_data = pd.read_csv(f'{root_dir}{file}', index_col=1, skiprows=1,
                                    encoding='windows-1252', sep=';')
-        if verbose: print('Load fmt 2', file, end='\r')
-        pronovo_types = ['-A.Windturbine [kWh]' if tpe == 'Wind' else '-A.Photovoltaik [kWh]' for tpe in types]
+        pronovo_types = pronovo_types_map[str(format)]
     else:
         raise Exception('Unknown format')
     pronovo_data.index = pd.to_datetime(pronovo_data.index, format='%d.%m.%Y %H:%M')
-    pronovo_data = pronovo_data[pronovo_types]
+    pronovo_types_a = [pronovo_types[tpe] for tpe in types if
+                       tpe in pronovo_types and pronovo_types[tpe] in pronovo_data.columns]
+    pronovo_data = pronovo_data[pronovo_types_a]
+    pronovo_types_inv = {v: k for k, v in pronovo_types.items()}
     for i in range(len(types)):
-        pronovo_data.rename(columns={pronovo_types[i]: types[i]}, inplace=True)
+        pronovo_data.rename(columns=pronovo_types_inv, inplace=True)
     pronovo_data = pronovo_data.applymap(
-        lambda x: x if type(x) == float else float(x.replace('\'', '').replace('’', '')))
+        lambda x: float(x) if type(x) != str else float(x.replace('\'', '').replace('’', '')))
     pronovo_data = pronovo_data.resample('H').sum()
     pronovo_data = pronovo_data.iloc[:-1]  # last value is first hour if the next month
     return pronovo_data
 
 
-def load_all_pronovo_files(dirs: [str], types: [str] = ['Wind', 'Solar'], verbose: bool=False) -> pd.DataFrame:
+def load_all_pronovo_files(dirs: [str], types: [str] = ['Wind', 'Solar'], verbose: bool = False) -> pd.DataFrame:
     """
     Loads all pronovo files in a given directory, applying daily scaling with energy charts ecd_enr_model (the hourly variation
     comes from the pronovo ecd_enr_model, and the daily total from energy charts ecd_enr_model, if available).
@@ -175,34 +209,81 @@ def load_all_capacities(plants_map: pd.DataFrame, time_index: pd.DatetimeIndex) 
     return capacities
 
 
-def get_weather_grid(file: str, year: int, verbose: bool=False) -> pd.DataFrame:
+def get_weather_grid(file: str, year: int, value_vars: [str], verbose: bool = False) -> pd.DataFrame:
     """
     Loads the given .cdf file and filters it by the given year and region of interest
 
     :param file: the .cdf file to load, containing the weather ecd_enr_model
     :param year: the year to filter the ecd_enr_model by
+    :param value_vars: the possible names of the variable to extract from the .nc file
     :param verbose: whether to print debug information
     :return: the weather ecd_enr_model grid
     """
 
     if verbose: print('Read:', file)
-    #else: print('Process:', file, end='\r')
-    ds2 = xr.open_dataset(f'{root_dir}{file}')
-    factors = ds2.to_dataframe().dropna()
-    del ds2
-    if verbose: print('Filter ecd_enr_model...', factors.shape, end='\r')
-    # Retain only the values in the region of interest (Switzerland), and in the year 2021
-    mask = (factors.index.get_level_values('longitude') > 5.9865) & (
-            factors.index.get_level_values('longitude') < 10.4921) & (
-                   factors.index.get_level_values('latitude') > 45.8175) & (
-                   factors.index.get_level_values('latitude') < 47.8085) & (
-                   factors.index.get_level_values('time').year == year)
-    if verbose: print('Keeping', mask.sum(), '/', len(mask), 'values', end='\r')
-    factors = factors.loc[factors.index[mask]].copy()
+    # else: print('Process:', file, end='\r')
+
+    import netCDF4 as nc
+    import re
+    def search_var(var_names):
+        """Search for the first variable of var_names that is in ds.variables"""
+        for var in var_names:
+            if var in ds.variables:
+                return var
+        raise ValueError(f'None of the variables {var_names} found in {ds.variables} of {file}')
+
+    ds = nc.Dataset(f'{file}')
+    # Create the time index
+    time_var = ds.variables['time']
+    # time_var can be 'hours since 1900-01-01 00:00:00.0' or 'days since 1949-12-1 00:00:00'
+    # reconstruct the dates index from the time variable
+    date_reference = re.search(r'since\s(.+)', time_var.units).group(1)
+    date_reference = pd.to_datetime(date_reference)
+    hourly = False
+    if 'hours' in time_var.units:
+        hourly = True
+        dates = date_reference + pd.to_timedelta(time_var[:], unit='h')
+    elif 'days' in time_var.units:
+        dates = date_reference + pd.to_timedelta(time_var[:], unit='D')
+    else:
+        raise ValueError(f'Unknown time unit {time_var.units}')
+
+    # Get the variable names
+    long_var = search_var(['longitude', 'lon'])
+    lat_var = search_var(['latitude', 'lat'])
+    value_var = search_var(value_vars)
+    # Filter by year of interest
+    get_dates = np.where(dates.year == year)
+    # Filter by region of interest (Switzerland)
+    get_longitudes = np.where((ds.variables[long_var][:] > 5.9865) & (ds.variables[long_var][:] < 10.4921))
+    get_latitudes = np.where((ds.variables[lat_var][:] > 45.8175) & (ds.variables[lat_var][:] < 47.8085))
+    dates = dates[get_dates[0]].values
+    vals = ds.variables[value_var][get_dates[0], get_latitudes[0], get_longitudes[0]]
+    vals_all_pos = vals.data[:, :, :]
+
+    # Convert to hourly frequency if necessary
+    if not hourly:
+        # create an hourly frequency using a second order polynomial interpolation
+        from scipy.interpolate import interp1d
+        f = interp1d(dates.tolist(), vals_all_pos, kind='quadratic', axis=0)
+        n_date_axis = pd.date_range(start=dates[0], end=dates[-1], freq='H')
+        val_interp_all_pos = f(n_date_axis.values.tolist())
+        val_interp_all_pos = np.maximum(val_interp_all_pos, 0)
+    else:
+        n_date_axis = dates
+        val_interp_all_pos = vals_all_pos
+
+    # Return the values in a dataframe with the multiindex (time, latitude, longitude)
+    index = pd.MultiIndex.from_product(
+        [n_date_axis, ds.variables[lat_var][get_latitudes[0]].data, ds.variables[long_var][get_longitudes[0]].data],
+        names=['time', 'latitude', 'longitude'])
+    vals_2d = val_interp_all_pos.reshape((-1))
+    factors = pd.DataFrame(vals_2d, index=index)
     return factors
 
 
-def map_plants_to_weather_grid(weather_grid: pd.DataFrame, plants_map : pd.DataFrame, n_nearests: int=4, verbose: bool=False) -> pd.DataFrame:
+def map_plants_to_weather_grid(weather_grid: pd.DataFrame, plants_map: pd.DataFrame, n_nearests: int = 4,
+                               verbose: bool = False) -> pd.DataFrame:
     """
     Finds the n_nearests positions of the weather grid for each plant in the given plants map, and updates it with the found positions
 
@@ -213,8 +294,13 @@ def map_plants_to_weather_grid(weather_grid: pd.DataFrame, plants_map : pd.DataF
     :return: the updated plants map, with 'pos' (nearest position) and 'all_pos' (n_nearests positions) columns, mapped to the weather grid
     """
 
-    if verbose: print('Mapping plant poses... In', weather_grid.shape, 'values                                                     ')
-    else: print('Mapping plant poses...                                                                                            ', end='\r')
+    if verbose:
+        print('Mapping plant poses... In', weather_grid.shape,
+              'values                                                     ')
+    else:
+        print(
+            'Mapping plant poses...                                                                                            ',
+            end='\r')
     wd40 = weather_grid.reset_index()
     grid = wd40[['longitude', 'latitude']].drop_duplicates(subset=['longitude', 'latitude'])
     del wd40
@@ -251,69 +337,73 @@ def map_plants_to_weather_grid(weather_grid: pd.DataFrame, plants_map : pd.DataF
     return plants_map
 
 
-def process_file(f, year, plants_map, verbose):
+def process_file(f, year, plants_map, value_vars, verbose):
     """
     Proxy function to load_X, used for multiprocessing
     """
-    f_X, X = load_X(plants_map, f'{f}', year, verbose=verbose)
+    f_X, X = load_X(plants_map, f'{f}', year, value_vars, verbose=verbose)
     del X
     return f_X
 
 
-def load_all_X(plants_map: pd.DataFrame, dir: str, year: int, verbose: bool=False) -> (pd.DataFrame, np.ndarray):
+def load_all_X(plants_map: pd.DataFrame, dir: str, year: int, value_vars: [str], verbose: bool = False) -> (
+pd.DataFrame, np.ndarray):
     """
     Loads weather ecd_enr_model from all files in the given directory, and maps it to the given plants_map
 
     :param plants_map: the plants map (as returned by map_plants_to_weather_grid)
     :param dir: the directory containing the .cdf files to load
     :param year: the year to load
+    :param value_vars: the possible names (in the .nc file) of the weather variable to load
     :param verbose: whether to print debug information
     :return: the mapped weather ecd_enr_model, with n_nearests columns for each plant
     """
     import multiprocessing
 
+    # Create a list of filenames
+    files = [(f'{root_dir}{dir}/{f}', year, plants_map, value_vars, verbose) for f in listdir(f'{root_dir}{dir}') if
+             f.endswith('.nc')]
+
     # Define the number of processes to use
     num_processes = multiprocessing.cpu_count() - 2
+    num_processes = min(num_processes, len(files))
 
     # Create a pool of worker processes
     pool = multiprocessing.Pool(processes=num_processes)
 
-    # Create a list of filenames
-    files = [(f'{root_dir}{dir}/{f}', year, plants_map, verbose) for f in listdir(f'{root_dir}{dir}') if
-             f.endswith('.nc')]
-
     if verbose: print('Using thread pool with', num_processes, 'processes', end='\r')
     # Process the files in parallel
-    Xs = pool.starmap(process_file, files)
-    # Xs = []
-    # for f in listdir(f'{root_dir}{dir}'):
-    #    if f.endswith('.nc'):
-    #        Xs.append(process_file(f'{root_dir}{dir}/{f}', year, wind_plants))
-    #        print('Done', f)
+    #Xs = pool.starmap(process_file, files)
+    Xs = []
+    for f in listdir(f'{root_dir}{dir}'):
+        if f.endswith('.nc'):
+            Xs.append(process_file(f'{root_dir}{dir}/{f}', year, plants_map, value_vars, verbose))
+            print('Done', f)
     if verbose: print('Done!                   ')
 
     # Close the pool to free up resources
-    pool.close()
-    pool.join()
+    #pool.close()
+    #pool.join()
 
     full_X = pd.concat(Xs)
     X = full_X.values
     return full_X, X
 
 
-def load_X(plants_map: pd.DataFrame, file: str, year: int, verbose: bool=False) -> (pd.DataFrame, np.ndarray):
+def load_X(plants_map: pd.DataFrame, file: str, year: int, value_vars: [str], verbose: bool = False) -> (pd.DataFrame, np.ndarray):
     """
     Loads the weather ecd_enr_model for the given year, from the given .cdf file, and maps it to the given plants_map
 
     :param plants_map: the plants map (as returned by map_plants_to_weather_grid)
     :param file: the .cdf file to load
     :param year: the year to load
+    :param value_vars: the possible names of the weather variable to extract from the .nc file
     :param verbose: whether to print debug information
     :return: the mapped weather ecd_enr_model, with n_nearest columns for each plant
     """
 
     # Load weather grid
-    weather_grid = get_weather_grid(file, year, verbose=verbose)
+    weather_grid = get_weather_grid(file, year, value_vars=value_vars, verbose=verbose)
     if verbose: print(f'Processing weather ecd_enr_model from {file}...')
     weather_grid = weather_grid.reset_index().set_index(['longitude', 'latitude', 'time'])
     weather_grid = weather_grid.sort_index()
@@ -343,7 +433,7 @@ def load_X(plants_map: pd.DataFrame, file: str, year: int, verbose: bool=False) 
 
 
 def generate_train_data(years, model_params, load_X=True,
-                        load_Y=True, plants_map=None, do_map_plants_to_weather_grid=False, verbose: bool=False):
+                        load_Y=True, plants_map=None, do_map_plants_to_weather_grid=False, verbose: bool = False):
     """
     Generates the input and/or output ecd_enr_model for the given years, and the given model parameters
     The ecd_enr_model is saved in the path defined in the model parameters
@@ -363,15 +453,19 @@ def generate_train_data(years, model_params, load_X=True,
         plants_map = load_plants(model_params)
         do_map_plants_to_weather_grid = True
     if do_map_plants_to_weather_grid:
-        if verbose: print('Mapping plant poses...')
-        else: print('Mapping plant poses...', end='\r')
+        if verbose:
+            print('Mapping plant poses...')
+        else:
+            print('Mapping plant poses...', end='\r')
         year = model_params["plant_mapping_year"]
         dir = f'{model_params["name_prefixs"][0]}_{year}'
         found = False
         for f in listdir(f'{root_dir}{dir}'):
             if f.endswith('.nc'):
-                weather_grid = get_weather_grid(f'{dir}/{f}', year, verbose=verbose)
-                plants_map = map_plants_to_weather_grid(weather_grid, plants_map, n_nearests=model_params['n_nearests'], verbose=verbose)
+                weather_grid = get_weather_grid(f'{root_dir}{dir}/{f}', year,
+                                                value_vars=model_params['.cdf_value_vars'][0], verbose=verbose)
+                plants_map = map_plants_to_weather_grid(weather_grid, plants_map, n_nearests=model_params['n_nearests'],
+                                                        verbose=verbose)
                 del weather_grid
                 if verbose: print(f'Save to ecd_enr_model/{model_params["gen_path_y"]}plants_{year}.csv...')
                 plants_map.to_csv(f'{root_dir}{model_params["gen_path_y"]}plants_{year}.csv...')
@@ -386,7 +480,8 @@ def generate_train_data(years, model_params, load_X=True,
             for i in range(len(model_params['name_prefixs'])):
                 name_prefix = model_params['name_prefixs'][i]
                 if verbose: print(f'Load X for {name_prefix}_{year}...')
-                full_X, _ = load_all_X(plants_map, f'{name_prefix}_{year}', year, verbose=verbose)
+                full_X, _ = load_all_X(plants_map, f'{name_prefix}_{year}', year, model_params['.cdf_value_vars'][i],
+                                       verbose=verbose)
                 if verbose: print(f'Save to full_X_{year}.csv...')
                 full_X.to_csv(f'{root_dir}{model_params["gen_path_x"][i]}full_X_{year}.csv')
         if load_Y:
@@ -399,7 +494,9 @@ def generate_train_data(years, model_params, load_X=True,
             full_y.to_csv(f'{root_dir}{model_params["gen_path_y"]}full_y_prod_{year}.csv...')
 
 
-def load_model_data(years: [int], model_params: dict, load_X: bool=True, load_Y: bool=True, add_0_capa: bool=False, verbose: bool=False) -> (pd.DataFrame, np.ndarray, pd.DataFrame, np.ndarray):
+def load_model_data(years: [int], model_params: dict, load_X: bool = True, load_Y: bool = True,
+                    add_0_capa: bool = False, verbose: bool = False) -> (
+pd.DataFrame, np.ndarray, pd.DataFrame, np.ndarray):
     """
     Loads the model input and/or output ecd_enr_model for the given years, and the given model parameters
     The ecd_enr_model is loaded from the files generated by generate_train_data, from the paths defined in model_params
@@ -457,8 +554,8 @@ def load_model_data(years: [int], model_params: dict, load_X: bool=True, load_Y:
         X = np.nan_to_num(X, copy=False)
         # from sklearn.preprocessing import StandardScaler
         # X = StandardScaler().fit_transform(X)
-        #X[:, -1] = full_X['month'].values
-        #if model_params['add_hour']:
+        # X[:, -1] = full_X['month'].values
+        # if model_params['add_hour']:
         #    X[:, -2] = full_X['hour'].values
     else:
         X = None
