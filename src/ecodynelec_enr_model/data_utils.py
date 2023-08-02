@@ -203,4 +203,3 @@ def load_EC_time_series_from_dir(from_dir):
         result = pd.concat([result, series], axis=0)
     return result
 
-
