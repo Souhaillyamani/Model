@@ -25,10 +25,11 @@ This module contains the following functions:
 from os.path import exists
 
 import pandas as pd
+from ecodynelec.preprocessing.enr_residual_utils import load_all_pronovo_files
 from sklearn.base import BaseEstimator
 from sklearn.ensemble import ExtraTreesRegressor
 
-from ecodynelec_enr_model.data_loading import load_model_data, generate_train_data, load_all_capacities, load_all_pronovo_files, \
+from ecodynelec_enr_model.data_loading import load_model_data, generate_train_data, load_all_capacities, \
     save_power_data, root_dir
 
 
@@ -225,7 +226,7 @@ def train_predict_pipeline(model_params: dict, predict_years: [int], generate_in
 
 
 def generate_production_files(models: [dict], train_years: [int], predict_years: [int], save_to: str = None,
-                              generate_learning_model_input: bool = False, verbose: bool=False) -> pd.DataFrame:
+                              generate_learning_model_input: bool = False, return_training_power_production=False, verbose: bool=False) -> pd.DataFrame:
     """
     Generates the production files for the given models and years
 
@@ -235,8 +236,9 @@ def generate_production_files(models: [dict], train_years: [int], predict_years:
     :param predict_years: the years to predict
     :param save_to:  the name of the file to save the output to (if None, the output will not be saved)
     :param generate_learning_model_input: if True, the input/output ecd_enr_model of the model will be generated (else, it will be loaded from local files)
+    :param return_training_power_production: if True, the output will also contain the real power production for train_years
     :param verbose: if True, the function will print more debug information
-    :return: the predicted power production for train_years and predict_years
+    :return: the predicted power production for predict_years and, for train_years if return_training_power_production is True
     """
     types = [model['type'] for model in models]
     final_data = []
@@ -247,11 +249,12 @@ def generate_production_files(models: [dict], train_years: [int], predict_years:
         y_pred = train_predict_pipeline(model, predict_years, generate_input=generate_learning_model_input, verbose=verbose)
         final_data.append(y_pred)
     final_data = {types[i]: final_data[i] for i in range(len(types))}
-    final_data = pd.concat(final_data, axis=1)
-    print('Loading training years ecd_enr_model...')
-    years = [f'prod_{year}' for year in train_years]
-    pronovo_data = load_all_pronovo_files(years, types=types, verbose=verbose)
-    final_data = pd.concat([pronovo_data, final_data], axis=0).sort_index()
+    final_data = pd.concat(final_data, axis=1).sort_index()
+    if return_training_power_production:
+        print('Loading training years ecd_enr_model...')
+        years = [f'prod_{year}' for year in train_years]
+        pronovo_data = load_all_pronovo_files(root_dir, years, types=types, verbose=verbose)
+        final_data = pd.concat([pronovo_data, final_data], axis=0).sort_index()
     if save_to is not None:
         save_power_data(final_data, path=f'{root_dir}export/{save_to}')
     print('Done!')
