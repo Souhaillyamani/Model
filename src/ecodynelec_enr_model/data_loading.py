@@ -15,6 +15,7 @@ from os.path import exists
 
 import numpy as np
 import pandas as pd
+from ecodynelec.preprocessing.enr_residual_utils import load_all_pronovo_files
 from pyproj import Transformer
 from scipy.spatial.distance import cdist
 
@@ -93,6 +94,7 @@ def get_weather_grid(file: str, year: int, value_vars: [str], verbose: bool = Fa
         raise ValueError(f'None of the variables {var_names} found in {ds.variables} of {file}')
 
     ds = nc.Dataset(f'{file}')
+    print(ds.variables.keys())
     # Create the time index
     time_var = ds.variables['time']
     # time_var can be 'hours since 1900-01-01 00:00:00.0' or 'days since 1949-12-1 00:00:00'
@@ -339,6 +341,7 @@ def generate_train_data(years, model_params, load_X=True,
         if load_X:
             for i in range(len(model_params['name_prefixs'])):
                 name_prefix = model_params['name_prefixs'][i]
+                #print(name_prefix)
                 if verbose: print(f'Load X for {name_prefix}_{year}...')
                 full_X, _ = load_all_X(plants_map, f'{name_prefix}_{year}', year, model_params['.cdf_value_vars'][i],
                                        verbose=verbose)
@@ -346,7 +349,7 @@ def generate_train_data(years, model_params, load_X=True,
                 full_X.to_csv(f'{root_dir}{model_params["gen_path_x"][i]}full_X_{year}.csv')
         if load_Y:
             if verbose: print(f'Load Y for {year}...')
-            full_y = load_all_pronovo_files([f'prod_{year}'], types=[model_params['type']], verbose=verbose)
+            full_y = load_all_pronovo_files(root_dir,[f'prod_{year}'], types=[model_params['type']], verbose=verbose)
             if model_params['div_by_capa']:
                 full_capas = load_all_capacities(plants_map, full_y.index)
                 full_y = full_y.divide(full_capas, axis=0)

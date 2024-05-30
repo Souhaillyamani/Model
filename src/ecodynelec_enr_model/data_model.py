@@ -64,7 +64,7 @@ See data_loading module for more details.
 """
 
 solar_plants_model = {
-    'file': 'CH_ElectricityProductionPlant_final.csv',
+    'file': 'ElectricityProductionPlant.csv',
     'date_col': 'BeginningOfOperation',
     'category_col': 'SubCategory',
     'category': 'Solar_CH',
